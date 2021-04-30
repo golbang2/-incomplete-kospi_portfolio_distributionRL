@@ -9,10 +9,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Normal
 
-def pdf()
+def cal_pdf(y, mu, sigma):
+    pdf = 1.0 / torch.sqrt(2 * np.pi) * sigma * torch.exp(-0.5 * ((y - mu) / sigma)**2)
+    return pdf
 
+def weighted_return(z, selected_z, mu, sigma, sensivity):
+    sum_z = torch.sum(selected_z)
+    w_r = (torch.exp(z)/torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
+    return w_r
+    
 import environment
 env = environment.trade_env()
 s = env.reset()
@@ -43,7 +49,8 @@ class Agent(nn.Module):
         
         return mu, sigma, z
     
-    def calculate_loss(self,s,z,sum_z):
+    def calculate_loss(self, s, z, sum_z):
+        
         
     
     def stack_memory(self,loss):
