@@ -11,20 +11,18 @@ import torch.nn as nn
 import torch.optim as optim
 
 def cal_pdf(y, mu, sigma):
-    pdf = 1.0 / torch.sqrt(2 * np.pi) * sigma * torch.exp(-0.5 * ((y - mu) / sigma)**2)
+    pdf = 1.0 / torch.sqrt(2 * np.pi) * sigma * torch.exp(-0.5 * ((y - mu) / sigma)** 2)
     return pdf
 
 def weighted_return(z, selected_z, mu, sigma, sensivity):
     sum_z = torch.sum(selected_z)
-    w_r = (torch.exp(z)/torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
+    w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
     return w_r
     
 import environment
 env = environment.trade_env()
 s = env.reset()
 selected_s = env.select_rand()
-
-cell = nn.LSTM(s.shape[2], 2, num_layers = 2, batch_first=True)
     
 class Agent(nn.Module):
     def __init__(self, s_shape, layers = 2, hidden_size = 5):
@@ -40,9 +38,9 @@ class Agent(nn.Module):
         
         self.loss_list = []
         
-    def predict(self, s):
-        tensor_s = torch.tensor(s)
-        outputs, _status = cell(tensor_s)
+    def predict(self, tensor_s):
+        #tensor_s = torch.tensor(s, dtype = torch.float)
+        outputs, _status = self.LSTM_cell(tensor_s)
         mu = self.fc_mu(outputs[:,-1])
         sigma = self.fc_sigma(outputs[:,-1])
         z = self.fc_z(outputs[:,-1])
@@ -50,11 +48,10 @@ class Agent(nn.Module):
         return mu, sigma, z
     
     def calculate_loss(self, s, z, sum_z):
-        
-        
-    
-    def stack_memory(self,loss):
-        self.loss_list.append(loss)        
+        dist_loss = cal_pdf()
+        alloc_loss = weighted_return()
+        loss = -dist_loss-alloc_loss
+        self.loss_list.append(loss)
     
     def train(self):
         loss=torch.cat(self.loss_list).sum()
