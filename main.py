@@ -27,7 +27,7 @@ input_day_size = 50
 filter_size = 3
 num_of_feature = 4
 num_of_asset = 10
-num_episodes = 10000 if is_train ==1 else 1
+num_episodes = 1 if is_train ==1 else 1
 money = 1e+8
 
 use_cuda = torch.cuda.is_available()

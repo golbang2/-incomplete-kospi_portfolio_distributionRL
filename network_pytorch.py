@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 def cal_pdf(y, mu, sigma):
     pdf = 1.0 / torch.sqrt(2 * np.pi) * sigma * torch.exp(-0.5 * ((y - mu) / sigma)** 2)
@@ -18,12 +19,19 @@ def weighted_return(z, selected_z, mu, sigma, sensivity):
     sum_z = torch.sum(selected_z)
     w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
     return w_r
+
+def elu(x):
+    if x > 0.:
+        act_fn = x + 1
+    else:
+        act_fn = torch.exp(x)
+    return act_fn
     
 import environment
 env = environment.trade_env()
 s = env.reset()
 selected_s = env.select_rand()
-    
+
 class Agent(nn.Module):
     def __init__(self, s_shape, layers = 2, hidden_size = 5):
         super(Agent, self).__init__()
@@ -42,7 +50,7 @@ class Agent(nn.Module):
         #tensor_s = torch.tensor(s, dtype = torch.float)
         outputs, _status = self.LSTM_cell(tensor_s)
         mu = self.fc_mu(outputs[:,-1])
-        sigma = self.fc_sigma(outputs[:,-1])
+        sigma = elu(self.fc_sigma(outputs[:,-1]))
         z = self.fc_z(outputs[:,-1])
         
         return mu, sigma, z
