@@ -81,20 +81,16 @@ class trade_env:
         self.state = self.env_data.extract_selected(self.all_index,self.time)
         self.value = money
         self.benchmark = money
-        self.acc = np.zeros([2,3],dtype=np.int32)
-        
         self.time_list=[]
         return self.state
 
-    def select(self,value_array):
+    def select_from_value(self,value_array):
         self.selected_index = []
         self.sorted_value = value_array[:,0].argsort()[::-1][:self.number_of_asset]
         for i in self.sorted_value:
             self.selected_index.append(self.all_index[i])
         
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
-        
-        #self.value_array = value_array
 
         return self.selected_state
     
@@ -105,12 +101,19 @@ class trade_env:
         
         return self.selected_state
     
+    def select_from_index(self,selected_index):
+        self.selected_index = []
+        for i in selected_index:
+            self.selected_index.append(self.all_index[i])
+        self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
+        
+        return self.selected_state
+        
     def holding(self,index):
         self.selected_index = index
         
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
         return self.selected_state
-    
 
     def step(self,weight):
         self.benchmark_prime,_ = self.calculate_value(self.benchmark,(np.ones(self.number_of_asset,dtype = np.float32)/self.number_of_asset))
@@ -125,22 +128,6 @@ class trade_env:
         self.time_list.append(self.done)
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
-            
-        '''
-        for i in range(len(self.individual_return)):
-            if self.individual_return[i]>0 and self.value_array[i]>0:
-                self.acc[0,0]+=1
-            if self.individual_return[i]==0 and self.value_array[i]>0:
-                self.acc[0,1]+=1
-            if self.individual_return[i]<0 and self.value_array[i]>0:
-                self.acc[0,2]+=1
-            if self.individual_return[i]>0 and self.value_array[i]<0:
-                self.acc[1,0]+=1
-            if self.individual_return[i]==0 and self.value_array[i]<0:
-                self.acc[1,1]+=1
-            if self.individual_return[i]<0 and self.value_array[i]<0:
-                self.acc[1,2]+=1
-        '''
         
         return self.state_prime, self.r, self.done, self.value , self.individual_return
 
@@ -170,5 +157,3 @@ class trade_env:
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
         return self.done
-        
-    
