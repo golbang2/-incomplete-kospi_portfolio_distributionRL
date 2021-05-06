@@ -38,6 +38,13 @@ def utility_fn(mu,sigma):
     utility = mu-beta*sigma*sigma
     return utility
 
+def cal_loss(z, selected_z, mu, sigma, r, sensivity, gamma = 0.2):
+    pdf = torch.exp(-0.5 * ((r - mu) / sigma)** 2) / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)
+    sum_z = torch.sum(selected_z)
+    w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu.item() - sensivity * (sigma.item()**2))
+    loss = - (pdf + gamma * w_r)
+    return loss
+
 #preprocessed data loading
 is_train = 1
 
@@ -46,13 +53,12 @@ input_day_size = 50
 filter_size = 3
 num_of_feature = 4
 num_of_asset = 10
-num_episodes = 1 if is_train ==1 else 1
+num_episodes = 10000 if is_train ==1 else 1
 money = 1e+8
 beta = 0.4
 
 use_cuda = torch.cuda.is_available()
 cuda_index = torch.device('cuda:0') 
-
 
 env = environment.trade_env(number_of_asset = num_of_asset)
 
@@ -68,23 +74,21 @@ s=MM_scaler(s)
 done=False
 v=money
 
-mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-selected_index, weight = selecting(z)
-selected_s = env.select_from_index(selected_index)
-s_prime,r,done,v_prime,growth = env.step(weight.numpy())
+w = np.ones(10,dtype = np.float32)/10
 
-
-
-'''
 for i in range(num_episodes):
-    memory = deque()
     s=env.reset()
     s=MM_scaler(s)
     done=False
     v=money
     while not done:
-        mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-        selected_s = env.select_rand()
-        selected_s = MM_scaler(selected_s)
-        
-'''      
+        mu, sigma = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
+        #selected_index, weight = selecting(z)
+        selected_s = env.select_rand()#selected_index)
+        s_prime,r,done,v_prime,growth = env.step(w)
+        s_prime = MM_scaler(s_prime)
+        agent.calculate_loss(mu,sigma,torch.tensor(growth).cuda())
+        s = s_prime
+        if done:
+            agent.train()
+            

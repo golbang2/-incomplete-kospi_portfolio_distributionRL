@@ -15,10 +15,12 @@ def cal_pdf(y, mu, sigma):
     pdf = torch.exp(-0.5 * ((y - mu) / sigma)** 2) / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)
     return pdf
 
+'''
 def weighted_return(z, selected_z, mu, sigma, sensivity):
     sum_z = torch.sum(selected_z)
     w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
     return w_r
+'''
 
 #def elu(x):
 #    return torch.where(x > 0, x+1 , torch.exp(x))
@@ -37,11 +39,11 @@ class Agent(nn.Module):
         self.beta = beta
         self.elu = nn.ELU(1.)
         
-        self.LSTM_cell = nn.LSTM(s_shape[2], hidden_size , layers, batch_first = True)
+        self.LSTM_cell = nn.GRU(s_shape[2], hidden_size , layers, batch_first = True)
         
         self.fc_mu = nn.Linear(5,1)
         self.fc_sigma = nn.Linear(5,1)
-        self.fc_z = nn.Linear(5,1)
+        #self.fc_z = nn.Linear(5,1)
         
         self.optimizer = optim.Adam(self.parameters(), lr = 1e-4)
         
@@ -52,20 +54,21 @@ class Agent(nn.Module):
         outputs, _status = self.LSTM_cell(tensor_s)
         mu = self.fc_mu(outputs[:,-1])
         sigma = self.elu(self.fc_sigma(outputs[:,-1]))
-        z = self.fc_z(outputs[:,-1])
+        #z = self.fc_z(outputs[:,-1])
         
-        return mu, sigma, z
+        return mu, sigma, #z
     
-    def calculate_loss(self, z, selected_z, mu, sigma, r, gamma = 0.2):
+    def calculate_loss(self,mu,sigma,r):#(self, z, selected_z, mu, sigma, r, gamma = 0.2):
         dist_loss = cal_pdf(r, mu[:,0], sigma[:,0])
-        alloc_loss = weighted_return(z, selected_z, mu, sigma, self.beta)
-        loss = - dist_loss - gamma * alloc_loss
+        #alloc_loss = weighted_return(z, selected_z, mu, sigma, self.beta)
+        loss = - dist_loss #- gamma * alloc_loss
         self.loss_list.append(loss)
     
     def train(self):
         loss=torch.cat(self.loss_list).sum()
         loss=loss/len(self.loss_list)
+        print(loss)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        self.loss_lst=[]
+        self.loss_list=[]
