@@ -10,23 +10,19 @@ import pandas as pd
 from collections import deque
 
 class load_data:
-    def __init__(self,data_path = './data/',day_length=50, number_of_asset = 10, train_length = 1000, test_length = 275
-                 , val_length = 20, validation = False, train = True):
+    def __init__(self,data_path = './data/',day_length=50, number_of_asset = 10, train_length = 1020, test_length = 255
+                 , train = True):
         #hyper parameter
         self.number_of_asset = number_of_asset
         self.number_of_feature = 4 # close,high,low,volume
         self.train_length = train_length
         self.test_length = test_length
-        self.val_length = val_length
         self.day_length = day_length
         self.index_deque = deque()
         self.value_deque = deque()
         self.max_len = 0
         a=0
-        
-        #if validation==False:
-        #    self.test_length += self.val_length
-        
+
         #load kospi200 list
         self.read_csv_file = 'KOSPI200.csv'
         self.ksp_list = np.loadtxt('./data/'+self.read_csv_file, delimiter=',',dtype = str)
@@ -38,7 +34,7 @@ class load_data:
             self.ksp_data = pd.read_csv("./data/stock_price/"+i[0]+".csv")
             self.ksp_data = self.ksp_data[['Close','High','Low','Volume']].to_numpy(dtype=np.float32)
             if train:
-                self.ksp_data = self.ksp_data[:-self.test_length-self.val_length]
+                self.ksp_data = self.ksp_data[:-self.test_length]
             else:
                 self.ksp_data = self.ksp_data[-self.test_length-self.day_length:]
             self.loaded_list.append(self.ksp_data)
@@ -67,9 +63,9 @@ class load_data:
         return np.array(extract_deque,dtype = np.float32)
 
 class trade_env:
-    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True, validation = False):
+    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True):
         self.train = train
-        self.env_data = load_data(train = train,number_of_asset = number_of_asset, validation = validation)
+        self.env_data = load_data(train = train,number_of_asset = number_of_asset)
         self.decimal = decimal
         self.number_of_asset = number_of_asset
         self.day_length = day_length
@@ -111,7 +107,6 @@ class trade_env:
         
     def holding(self,index):
         self.selected_index = index
-        
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
         return self.selected_state
 

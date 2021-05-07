@@ -34,10 +34,6 @@ def selecting(z):
     weight = softmax(xi_z)
     return selected, weight
 
-def utility_fn(mu,sigma):
-    utility = mu-beta*sigma*sigma
-    return utility
-
 def cal_loss(z, selected_z, mu, sigma, r, sensivity, gamma = 0.2):
     pdf = torch.exp(-0.5 * ((r - mu) / sigma)** 2) / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)
     sum_z = torch.sum(selected_z)
@@ -53,9 +49,12 @@ input_day_size = 50
 filter_size = 3
 num_of_feature = 4
 num_of_asset = 10
-num_episodes = 10000 if is_train ==1 else 1
+num_episodes = 1000 if is_train ==1 else 1
 money = 1e+8
-beta = 0.4
+sensivity = 0.4
+
+#model
+save_frequency = 1000
 
 use_cuda = torch.cuda.is_available()
 cuda_index = torch.device('cuda:0') 
@@ -65,9 +64,8 @@ env = environment.trade_env(number_of_asset = num_of_asset)
 s=env.reset()
 s=MM_scaler(s)
 
-agent = network_pytorch.Agent(s.shape, beta = beta)
+agent = network_pytorch.Agent(s.shape, beta = sensivity)
 agent = agent.cuda()
-
 
 s=env.reset()
 s=MM_scaler(s)
@@ -91,4 +89,9 @@ for i in range(num_episodes):
         s = s_prime
         if done:
             agent.train()
+            
+    if i % save_frequency == save_frequency-1:
+        env = environment.trade_env(number_of_asset = number_of_asset, train = False)
+        while not done:
+            
             
