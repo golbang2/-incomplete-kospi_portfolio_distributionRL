@@ -39,7 +39,7 @@ class load_data:
                 self.ksp_data = self.ksp_data[-self.test_length-self.day_length:]
             self.loaded_list.append(self.ksp_data)
             self.index_deque.append([a,i[0],len(self.ksp_data),i[1]])
-            if self.max_len<len(self.ksp_data):
+            if self.max_len < len(self.ksp_data):
                 self.max_len = len(self.ksp_data)
             a+=1
 
@@ -52,7 +52,7 @@ class load_data:
     def sampling_data(self, time):
         sample_list = []
         for i in self.index_deque:
-            if i[2]-self.day_length>=self.max_len-self.day_length-time:
+            if i[2]-self.day_length >= self.max_len-self.day_length-time:
                 sample_list.append(i[0])
         return sample_list
 

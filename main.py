@@ -92,6 +92,15 @@ for i in range(num_episodes):
             
     if i % save_frequency == save_frequency-1:
         env = environment.trade_env(number_of_asset = number_of_asset, train = False)
+        s = env.reset()
+        s = MM_scaler(s)
+        done = False
+        v = money
         while not done:
-            
-            
+            mu, sigma = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
+            selected_s = env.select_rand()
+            s_prime, r, done, v_prime, growth = env.step(w)
+            s_prime = MM_scaler(s_prime)
+            s = s_prime
+            if done:
+                
