@@ -42,7 +42,9 @@ def cal_loss(z, selected_z, mu, sigma, r, sensivity, gamma = 0.2):
     return loss
 
 #preprocessed data loading
-is_train = 1
+is_train = True
+is_save = True
+load_weight = True
 
 #hyperparameters
 input_day_size = 50
@@ -58,6 +60,7 @@ save_frequency = 1000
 
 use_cuda = torch.cuda.is_available()
 cuda_index = torch.device('cuda:0') 
+save_path = './weights/'
 
 env = environment.trade_env(number_of_asset = num_of_asset)
 
@@ -80,8 +83,8 @@ for i in range(num_episodes):
     done=False
     v=money
     while not done:
-        mu, sigma = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-        #selected_index, weight = selecting(z)
+        mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
+        selected_index, weight = selecting(z)
         selected_s = env.select_rand()#selected_index)
         s_prime,r,done,v_prime,growth = env.step(w)
         s_prime = MM_scaler(s_prime)
@@ -89,18 +92,7 @@ for i in range(num_episodes):
         s = s_prime
         if done:
             agent.train()
+            print(i,'agent:',round(v/money,4), 'benchmark:',round(env.benchmark/money,4))
             
-    if i % save_frequency == save_frequency-1:
-        env = environment.trade_env(number_of_asset = number_of_asset, train = False)
-        s = env.reset()
-        s = MM_scaler(s)
-        done = False
-        v = money
-        while not done:
-            mu, sigma = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-            selected_s = env.select_rand()
-            s_prime, r, done, v_prime, growth = env.step(w)
-            s_prime = MM_scaler(s_prime)
-            s = s_prime
-            if done:
-                
+    if (i % save_frequency == save_frequency-1 and is_save == True):
+        torch.save(agent, save_path + str(i))
