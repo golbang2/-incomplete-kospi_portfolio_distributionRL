@@ -18,7 +18,7 @@ def cal_pdf(y, mu, sigma):
 def weighted_return(z, selected_z, mu, sigma, sensivity = 0.4):
     sum_z = torch.sum(selected_z)
     w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
-    return w_r
+    return w_r[:,0]
 
 
 #def elu(x):

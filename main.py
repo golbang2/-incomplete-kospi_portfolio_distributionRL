@@ -32,7 +32,13 @@ def selecting(z):
         xi_z.append(z[i])
     xi_z = torch.tensor(xi_z)
     weight = softmax(xi_z)
-    return selected, weight
+    
+    selected_z = deque()
+    for i in selected:
+        selected_z.append(z[i])
+    selected_z = torch.tensor(selected_z).cuda()
+    
+    return selected, weight, selected_z
 
 def cal_loss(z, selected_z, mu, sigma, r, sensivity, gamma = 0.2):
     pdf = torch.exp(-0.5 * ((r - mu) / sigma)** 2) / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)
@@ -84,11 +90,11 @@ for i in range(num_episodes):
     v=money
     while not done:
         mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-        selected_index, weight = selecting(z)
-        selected_s = env.select_rand()#selected_index)
-        s_prime,r,done,v_prime,growth = env.step(w)
+        selected_index, weight, selected_z = selecting(z)
+        selected_s = env.select_from_index(selected_index)
+        s_prime, r, done, v_prime, growth = env.step(w)
         s_prime = MM_scaler(s_prime)
-        agent.calculate_loss(mu,sigma,torch.tensor(growth).cuda())
+        agent.calculate_loss(z, selected_z, mu, sigma, torch.tensor(growth).cuda())
         s = s_prime
         if done:
             agent.train()
@@ -96,3 +102,4 @@ for i in range(num_episodes):
             
     if (i % save_frequency == save_frequency-1 and is_save == True):
         torch.save(agent, save_path + str(i))
+        print(i, 'saved')
