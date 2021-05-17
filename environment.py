@@ -25,13 +25,13 @@ class load_data:
 
         #load kospi200 list
         self.read_csv_file = 'KOSPI200.csv'
-        self.ksp_list = np.loadtxt('./data/'+self.read_csv_file, delimiter=',',dtype = str)
+        self.ksp_list = np.loadtxt(data_path+self.read_csv_file, delimiter=',',dtype = str)
     
         self.loaded_list = []
         self.ksp_list = self.ksp_list[:]
         
         for i in self.ksp_list:
-            self.ksp_data = pd.read_csv("./data/stock_price/"+i[0]+".csv")
+            self.ksp_data = pd.read_csv(data_path+"stock_price/"+i[0]+".csv")
             self.ksp_data = self.ksp_data[['Close','High','Low','Volume']].to_numpy(dtype=np.float32)
             if train:
                 self.ksp_data = self.ksp_data[:-self.test_length]
@@ -63,9 +63,9 @@ class load_data:
         return np.array(extract_deque,dtype = np.float32)
 
 class trade_env:
-    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True):
+    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True, data_path = './data/'):
         self.train = train
-        self.env_data = load_data(train = train,number_of_asset = number_of_asset)
+        self.env_data = load_data(data_path = data_path, train = train,number_of_asset = number_of_asset)
         self.decimal = decimal
         self.number_of_asset = number_of_asset
         self.day_length = day_length
