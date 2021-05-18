@@ -28,22 +28,20 @@ def selecting(z):
     selected = softmax_z[:,0].multinomial(num_samples = num_of_asset, replacement = False)
     selected = selected.cpu().numpy()
     xi_z = deque()
+    selected_index = torch.zeros(s.shape[0])
     for i in selected:
         xi_z.append(z[i])
+        selected_index[i] = 1
     xi_z = torch.tensor(xi_z)
+    inverse_sumz = selected_index/torch.sum(torch.exp(xi_z))
     weight = softmax(xi_z)
     
-    selected_z = deque()
-    for i in selected:
-        selected_z.append(z[i])
-    selected_z = torch.tensor(selected_z).cuda()
-    
-    return selected, weight, selected_z
+    return selected, weight, inverse_sumz
 
 #preprocessed data loading
 is_train = True
 is_save = True
-load_weight = 1
+load_weight = 0
 
 #hyperparameters
 input_day_size = 50
@@ -65,8 +63,8 @@ load_list = os.listdir(save_path)
 env = environment.trade_env(number_of_asset = num_of_asset)
 
 s=env.reset()
-s=MM_scaler(s)
 iteration = 0
+loss = 0.
 
 agent = network_pytorch.Agent(s.shape, beta = sensivity)
 agent = agent.cuda()
@@ -80,6 +78,7 @@ if load_weight:
     if is_train:
         agent.train()
 
+
 for i in range(iteration,num_episodes):
     s=env.reset()
     s=MM_scaler(s)
@@ -91,12 +90,14 @@ for i in range(iteration,num_episodes):
         selected_s = env.select_from_index(selected_index)
         s_prime, r, done, v, growth = env.step(weight.numpy())
         s_prime = MM_scaler(s_prime)
-        agent.calculate_loss(z, selected_z, mu, sigma, torch.tensor(growth).cuda())
+        agent.calculate_loss(z , selected_z, mu, sigma, torch.tensor(growth).cuda())
         s = s_prime
         if done:
+            loss += torch.sum(agent.loss).item()
             agent.optimize()
-            print(i,'agent:',round(v/money,4), 'benchmark:',round(env.benchmark/money,4))
+            print('%d agent: %.4f benchmark: %.4f, alloc: %.4f dist: %.4f'%(i,v/money,env.benchmark/money,torch.sum(agent.alloc_loss).item(),torch.sum(agent.dist_loss).item()))
             
-    if i % save_frequency == save_frequency-1 and is_save == True:
+    if i % save_frequency == 0 and is_save == True and i !=0:
         torch.save(agent.state_dict(), save_path + str(i).zfill(4)+'.pt')
-        print(i, 'saved loss:', torch.sum(agent.loss))
+        print(i, 'saved loss: %.4f'%loss)
+        loss = 0.

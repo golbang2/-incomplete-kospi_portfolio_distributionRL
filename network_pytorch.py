@@ -15,10 +15,9 @@ def cal_pdf(y, mu, sigma):
     pdf = torch.exp(-0.5 * ((y - mu) / sigma)** 2) / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)
     return pdf
 
-def weighted_return(z, selected_z, mu, sigma, sensivity = 0.4):
-    sum_z = torch.sum(selected_z)
-    w_r = (torch.exp(z) / torch.exp(sum_z)) * (mu - sensivity * (sigma**2))
-    return w_r[:,0]
+def weighted_return(z, inverse_sumz, mu, sigma, sensivity = 0.4):
+    w_r = (torch.exp(z) / torch.sum(inverse_sumz)) * (mu - sensivity * (sigma))
+    return w_r
 
 def elu(x):
     return nn.ELU(1.)(x)+1
@@ -49,7 +48,7 @@ class Agent(nn.Module):
     
     def calculate_loss(self, z, selected_z, mu, sigma, r):
         self.dist_loss = cal_pdf(r, mu[:,0], sigma[:,0])
-        self.alloc_loss = weighted_return(z, selected_z, mu, sigma)
+        self.alloc_loss = weighted_return(z[:,0], selected_z, mu[:,0].detach(), sigma[:,0].detach())
         self.loss = - self.dist_loss - self.alloc_loss
         self.loss_list.append(self.loss)
     
