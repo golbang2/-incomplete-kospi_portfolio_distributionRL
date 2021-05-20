@@ -117,14 +117,12 @@ class trade_env:
         self.time += 1
         self.all_index = self.env_data.sampling_data(self.time)
         self.state_prime = self.env_data.extract_selected(self.all_index,self.time)
-        self.r = (self.r - np.mean(self.r))*100
-        self.r = np.expand_dims(self.r,axis=0)
         self.benchmark = self.benchmark_prime
         self.time_list.append(self.done)
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
         
-        return self.state_prime, self.r, self.done, self.value , self.individual_return
+        return self.state_prime, np.mean(self.r), self.done, self.value , self.individual_return
 
     def calculate_value(self,value,weight):
         close = self.env_data.extract_close(self.selected_index,self.time-1)

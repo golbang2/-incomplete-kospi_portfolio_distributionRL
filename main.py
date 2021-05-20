@@ -33,10 +33,11 @@ def selecting(z):
         xi_z.append(z[i])
         selected_index[i] = 1
     xi_z = torch.tensor(xi_z)
-    inverse_sumz = selected_index/torch.sum(torch.exp(xi_z))
     weight = softmax(xi_z)
     
-    return selected, weight, inverse_sumz
+    sum_expz = torch.sum(torch.exp(xi_z)).item()
+    
+    return selected, weight, sum_expz
 
 #preprocessed data loading
 is_train = True
@@ -45,10 +46,10 @@ load_weight = 0
 
 #hyperparameters
 input_day_size = 50
-filter_size = 3
 num_of_feature = 4
 num_of_asset = 10
-num_episodes = 5000 if is_train ==1 else 1
+num_episodes = 10 if is_train ==1 else 0
+num_episodes += 1
 money = 1e+8
 sensivity = 0.4
 
@@ -86,16 +87,19 @@ for i in range(iteration,num_episodes):
     v=money
     while not done:
         mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-        selected_index, weight, selected_z = selecting(z)
+        selected_index, weight, sumz = selecting(z)
         selected_s = env.select_from_index(selected_index)
         s_prime, r, done, v, growth = env.step(weight.numpy())
         s_prime = MM_scaler(s_prime)
-        agent.calculate_loss(z , selected_z, mu, sigma, torch.tensor(growth).cuda())
+        agent.calculate_loss(z , sumz, mu, sigma, torch.tensor(growth).cuda())
         s = s_prime
         if done:
             loss += torch.sum(agent.loss).item()
             agent.optimize()
-            print('%d agent: %.4f benchmark: %.4f, alloc: %.4f dist: %.4f'%(i,v/money,env.benchmark/money,torch.sum(agent.alloc_loss).item(),torch.sum(agent.dist_loss).item()))
+            print('%d agent: %.4f benchmark: %.4f'
+                  %(i,v/money,env.benchmark/money))
+            print('a: %.4f mu: %.4f sigma: %.4f loss: %.4f'
+                  %(torch.sum(agent.a_loss).item(),torch.sum(agent.r_loss).item(),torch.sum(agent.v_loss).item(),torch.sum(agent.loss).item()))
             
     if i % save_frequency == 0 and is_save == True and i !=0:
         torch.save(agent.state_dict(), save_path + str(i).zfill(4)+'.pt')
