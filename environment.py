@@ -91,10 +91,11 @@ class trade_env:
         return self.selected_state
     
     def select_rand(self):
-        self.rand_index = np.random.choice(self.all_index,self.number_of_asset,False)
-        self.selected_index = self.rand_index
+        self.random_index = np.random.choice(len(self.all_index),self.number_of_asset,False)
+        self.selected_index = []
+        for i in self.random_index:
+            self.selected_index.append(self.all_index[i])
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
-        
         return self.selected_state
     
     def select_from_index(self,selected_index):
@@ -122,7 +123,7 @@ class trade_env:
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
         
-        return self.state_prime, np.mean(self.r), self.done, self.value , self.individual_return
+        return self.state_prime, self.r, self.done, self.value , self.individual_return
 
     def calculate_value(self,value,weight):
         close = self.env_data.extract_close(self.selected_index,self.time-1)

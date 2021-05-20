@@ -5,7 +5,6 @@ Created on Tue Mar  2 02:14:44 2021
 @author: karig
 """
 
-from collections import deque
 import network_pytorch
 import environment
 import numpy as np
@@ -19,25 +18,11 @@ def MM_scaler(s):
         x[i]=(s[i]-np.min(s[i],axis=0))/((np.max(s[i],axis=0)-np.min(s[i],axis=0))+1e-5)
     return x
 
-def softmax(z):
-    softmax = torch.nn.Softmax(0)
-    return softmax(z)
-
-def selecting(z):
-    softmax_z = softmax(z)
-    selected = softmax_z[:,0].multinomial(num_samples = num_of_asset, replacement = False)
-    selected = selected.cpu().numpy()
-    xi_z = deque()
-    selected_index = torch.zeros(s.shape[0])
-    for i in selected:
-        xi_z.append(z[i])
-        selected_index[i] = 1
-    xi_z = torch.tensor(xi_z)
-    weight = softmax(xi_z)
-    
-    sum_expz = torch.sum(torch.exp(xi_z)).item()
-    
-    return selected, weight, sum_expz
+def selecting(index, value):
+    selected_value = []
+    for i in index:
+        selected_value.append(value[i])
+    return torch.tensor(selected_value).cuda()
 
 #preprocessed data loading
 is_train = True
@@ -48,10 +33,10 @@ load_weight = 0
 input_day_size = 50
 num_of_feature = 4
 num_of_asset = 10
-num_episodes = 10 if is_train ==1 else 0
+num_episodes = 100 if is_train ==1 else 0
 num_episodes += 1
 money = 1e+8
-sensivity = 0.4
+beta = 0.2
 
 #model
 save_frequency = 10
@@ -65,19 +50,29 @@ env = environment.trade_env(number_of_asset = num_of_asset)
 
 s=env.reset()
 iteration = 0
-loss = 0.
+p_loss = 0.
+a_loss = 0.
+excess_return = 0.
 
-agent = network_pytorch.Agent(s.shape, beta = sensivity)
-agent = agent.cuda()
+predictor = network_pytorch.predictor(s.shape).to(cuda_index)
+allocator = network_pytorch.allocator(s, num_of_asset, beta = beta).to(cuda_index)
+predictor = predictor.cuda()
+allocator = allocator.cuda()
 
 if load_weight:
-    agent.load_state_dict(torch.load(save_path+load_list[-1]))
+    checkpoint = torch.load(save_path+load_list[-1])
+    predictor.load_state_dict(checkpoint['predictor_state_dict'])
+    allocator.load_state_dict(checkpoint['allocator_state_dict'])
+    predictor.optimizer.load_state_dict(checkpoint['optimizerP_state_dict'])
+    allocator.optimizer.load_state_dict(checkpoint['optimizerA_state_dict'])
     #agent = torch.load(save_path+load_list[-1])
     print(load_list[-1], 'loaded')
-    iteration = int(load_list[-1])
-    agent.eval()
+    iteration = int(load_list[:4])
+    predictor.eval()
+    allocator.eval()
     if is_train:
-        agent.train()
+        predictor.train()
+        allocator.train()
 
 
 for i in range(iteration,num_episodes):
@@ -86,22 +81,37 @@ for i in range(iteration,num_episodes):
     done=False
     v=money
     while not done:
-        mu, sigma, z = agent.predict(torch.tensor(s, dtype = torch.float).cuda())
-        selected_index, weight, sumz = selecting(z)
-        selected_s = env.select_from_index(selected_index)
-        s_prime, r, done, v, growth = env.step(weight.numpy())
+        mu, sigma = predictor.forward(torch.tensor(s, dtype = torch.float).cuda())
+        selected_s = env.select_rand()
+        selected_s = MM_scaler(selected_s)
+        weight, sigma_p = allocator.forward(torch.tensor(selected_s, dtype = torch.float).cuda())
+        s_prime, r, done, v_prime, growth = env.step(weight.detach().cpu().numpy())
         s_prime = MM_scaler(s_prime)
-        agent.calculate_loss(z , sumz, mu, sigma, torch.tensor(growth).cuda())
+        selected_sigma = selecting(env.random_index, sigma)
+        predictor.calculate_loss(mu,sigma,torch.tensor(growth).cuda())
+        allocator.calculate_loss(weight,torch.tensor(r).cuda(),torch.log(torch.tensor(v_prime/v)), selected_sigma, sigma_p)
         s = s_prime
+        v = v_prime
         if done:
-            loss += torch.sum(agent.loss).item()
-            agent.optimize()
+            excess_return += (v-env.benchmark)/money
+            p_loss += torch.sum(predictor.loss).item()
+            a_loss += torch.sum(allocator.loss).item()
+            predictor.optimize()
+            allocator.optimize()
             print('%d agent: %.4f benchmark: %.4f'
                   %(i,v/money,env.benchmark/money))
-            print('a: %.4f mu: %.4f sigma: %.4f loss: %.4f'
-                  %(torch.sum(agent.a_loss).item(),torch.sum(agent.r_loss).item(),torch.sum(agent.v_loss).item(),torch.sum(agent.loss).item()))
-            
+            print('mu: %.4f sigma: %.4f'
+                  %(torch.sum(predictor.r_loss).item(),torch.sum(predictor.v_loss).item()))
+            print('alloc: %.4f sigma_p: %.4f'
+                  %(torch.sum(allocator.w_loss).item(),torch.sum(predictor.s_loss).item()))
+
     if i % save_frequency == 0 and is_save == True and i !=0:
-        torch.save(agent.state_dict(), save_path + str(i).zfill(4)+'.pt')
-        print(i, 'saved loss: %.4f'%loss)
-        loss = 0.
+        torch.save({
+            'modelA_state_dict': predictor.state_dict(),
+            'modelB_state_dict': allocator.state_dict(),
+            'optimizerP_state_dict': predictor.optimizer.state_dict(),
+            'optimizerA_state_dict': allocator.optimizer.state_dict(),
+            }, save_path + str(i).zfill(4)+'.tar')
+        print(i, 'saved Ploss: %.4f Aloss: %.4f'%(p_loss,a_loss))
+        a_loss = 0.
+        p_loss = 0.

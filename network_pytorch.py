@@ -5,7 +5,6 @@ Created on Mon Apr 26 23:09:29 2021
 @author: karig
 """
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,7 +20,7 @@ def mse(mu, r):
 
 def alloc_reward(weight, individual_return, contribution_sigma, beta = 0.2):
     reward = weight * individual_return - beta * contribution_sigma
-    standard_reward = reward - torch.mean(reward)
+    standard_reward = (reward - torch.mean(reward)) * 1e+5
     weighted_reward = weight * standard_reward
     return weighted_reward
 
@@ -31,14 +30,12 @@ def elu(x):
 def calculate_contribution(weight, individual_sigma, portfolio_sigma):
     CR = weight*individual_sigma/torch.sum(weight*individual_sigma) * portfolio_sigma
     return CR
-    
+
+
 
 class predictor(nn.Module):
-    def __init__(self, s_shape, layers = 1, hidden1 = 5, hidden2 = 20, beta = 0.2, number_of_asset = 10, learning_rate = 1e-4):
+    def __init__(self, s_shape, layers = 1, hidden1 = 5, hidden2 = 20, number_of_asset = 10, learning_rate = 1e-4):
         super(predictor, self).__init__()
-        self.beta = beta
-        self.asset_number = number_of_asset
-        
         self.gru_cell = nn.GRU(s_shape[2], hidden1 , layers, batch_first = True)
         
         self.mu_fc1 = nn.Linear(hidden1,hidden2)
@@ -85,9 +82,9 @@ class allocator(nn.Module):
         self.beta = beta
         
         self.conv1 = nn.Conv2d(in_channels = self.num_of_feature, out_channels = channel1, kernel_size = (self.filter_size, 1))
-        self.conv2 = nn.Conv2d(channel1 , channel2,(self.input_size - self.filter_size + 1, 1))
+        self.conv2 = nn.Conv2d(channel1 , channel2,(self.day_length - filter_size + 1, 1))
         
-        self.fc = nn.Linear((channel2 * num_of_asset),hidden_size)
+        self.fc = nn.Linear((channel2 * num_of_asset), hidden_size)
         self.fc_weight = nn.Linear(hidden_size, num_of_asset)
         self.fc_sigma = nn.Linear(hidden_size, 1)
         
@@ -96,12 +93,13 @@ class allocator(nn.Module):
         self.loss_list = []
         
     def forward(self, tensor_s):
-        reshaped_s = tensor_s.view(1,4,50,10)
+        reshaped_s = tensor_s.view(1,self.num_of_feature,self.day_length,self.output_size)
         x = F.leaky_relu(self.conv1(reshaped_s))
         x = F.leaky_relu(self.conv2(x))
+        x = x.view(-1)
         x = F.leaky_relu(self.fc(x))
-        weight = self.fc_weight(x)
-        sigma = self.fc_sigma(x)
+        weight = F.softmax(self.fc_weight(x),dim=0)
+        sigma = elu(self.fc_sigma(x))
         
         return weight, sigma
     
@@ -109,7 +107,7 @@ class allocator(nn.Module):
         contribution_sigma = calculate_contribution(weight,individual_sigma, portfolio_sigma)
         self.s_loss = log_likelihood(portfolio_sigma, portfolio_return)
         self.w_loss = alloc_reward(weight, individual_return, contribution_sigma, self.beta)
-        self.loss = self.s_loss + self.w_loss
+        self.loss = self.s_loss - self.w_loss
         self.loss_list.append(self.loss)
     
     def optimize(self):
