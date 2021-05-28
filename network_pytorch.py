@@ -18,10 +18,9 @@ def mse(mu, r):
     m_loss = (mu-r)**2
     return m_loss
 
-def alloc_reward(weight, individual_return, individual_sigma , portfolio_sigma, beta = 0.2):
-    contributed_sigma = portfolio_sigma.detach() * individual_sigma.detach() / torch.sum(weight.detach() * individual_sigma.detach())
-    utility = individual_return - beta * contributed_sigma
-    scaled_utility = (utility - torch.mean(utility))/(torch.max(utility) - torch.min(utility))
+def alloc_reward(weight, individual_return, individual_sigma, beta):
+    utility = individual_return - beta * individual_sigma
+    scaled_utility = utility - torch.mean(utility)
     weighted_reward = (weight-0.1) * scaled_utility
     return weighted_reward
 
@@ -100,7 +99,7 @@ class allocator(nn.Module):
     
     def calculate_loss(self, weight, individual_return, portfolio_return, individual_sigma, portfolio_sigma):
         self.s_loss = log_likelihood(portfolio_sigma, portfolio_return)
-        self.w_loss = alloc_reward(weight, individual_return, individual_sigma, portfolio_sigma, self.beta)
+        self.w_loss = alloc_reward(weight, individual_return, individual_sigma, self.beta)
         self.loss = self.s_loss - self.w_loss
         self.loss_list.append(self.loss)
     
