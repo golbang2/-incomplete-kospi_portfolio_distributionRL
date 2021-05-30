@@ -114,7 +114,7 @@ class trade_env:
     def step(self,weight):
         self.benchmark_prime,_ = self.calculate_value(self.benchmark,(np.ones(self.number_of_asset,dtype = np.float32)/self.number_of_asset))
         self.value,self.r = self.calculate_value(self.value,weight)
-        self.individual_return = self.calculate_individual_return()
+        self.return_time = self.calculate_return_time()
         self.time += 1
         self.all_index = self.env_data.sampling_data(self.time)
         self.state_prime = self.env_data.extract_selected(self.all_index,self.time)
@@ -123,7 +123,7 @@ class trade_env:
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
         
-        return self.state_prime, self.r, self.done, self.value , self.individual_return
+        return self.state_prime, self.r, self.done, self.value , self.return_time
 
     def calculate_value(self,value,weight):
         close = self.env_data.extract_close(self.selected_index,self.time-1)
@@ -132,7 +132,7 @@ class trade_env:
         value_prime = np.sum(y * close_prime) + np.sum(weight * value % close)
         return value_prime, np.log(close_prime/close)
 
-    def calculate_individual_return(self):
+    def calculate_return_time(self):
         close = self.env_data.extract_close(self.all_index,self.time-1)
         close_prime = self.env_data.extract_close(self.all_index,self.time)
         return np.log(close_prime/close)

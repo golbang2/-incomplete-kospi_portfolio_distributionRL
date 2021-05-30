@@ -53,40 +53,55 @@ class policy:
         return a_loss
     
 class estimator:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 0.1, name='allocator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, name='allocator'):
         self.sess = sess
         self.input_size=day_length
         self.net_name=name
         self.num_of_feature = num_of_feature
         self.filter_size = filter_size
-        regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
+        regularizer = tf.contrib.layers.l2_regularizer(scale=1e-3)
         initializer = layer.xavier_initializer()
         
         self._X=tf.placeholder(tf.float32,[None,num_of_asset, self.input_size,self.num_of_feature], name = "x") # shape: batch,10,50,4
-        self._z = tf.placeholder(tf.float32,[None,num_of_asset],name = 'z')
+        self._z = tf.placeholder(tf.float32,[None, 1, num_of_asset],name = 'z')
         
         self.conv1 = layer.conv2d(self._X, 8, [1,self.filter_size], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
-        self.conv2 = layer.conv2d(self.conv1, 1, [1,self.input_size-self.filter_size+1], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer, weights_regularizer = regularizer)
+        self.conv2 = layer.conv2d(self.conv1, 1, [1,self.input_size-self.filter_size+1], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
         
-        self.fc1 = layer.fully_connected(layer.flatten(self.conv2), 50, activation_fn=tf.nn.leaky_relu, weights_regularizer = regularizer)
-
-        self.fc2 = layer.fully_connected(self.fc1, num_of_asset**2, activation_fn=tf.nn.tanh)
+        self.fc1 = layer.fully_connected(layer.flatten(self.conv2), 50, activation_fn=tf.nn.sigmoid)
         
-        self.cor = tf.reshape(self.fc2,(-1,num_of_asset,num_of_asset))
+        self.fc_L = layer.fully_connected(self.fc1, num_of_asset * num_of_asset,activation_fn = tf.nn.tanh)
+        self.L = tf.reshape(self.fc_L,(-1,num_of_asset,num_of_asset))
+        self.L = (self.L + tf.transpose(self.L,perm = [0,2,1])) +1e-2
+        self.lower = tf.linalg.band_part(self.L,-1,0)
+        self.upper = tf.linalg.band_part(self.L,0,-1)
         
-        self.loss = tf.reduce_sum(2*tf.log(tf.linalg.det(self.cor)+1e-5)+tf.matmul(tf.matmul(self._z,tf.linalg.inv(self.cor+1e-5)),tf.transpose(self._z)))
+        self.fc_D = layer.fully_connected(self.fc1, num_of_asset,activation_fn=tf.nn.sigmoid)
+        self.D = tf.linalg.diag(self.fc_D)*2
+        
+        self.expD = tf.exp(self.D)
+        self.R = tf.matmul(tf.matmul(self.lower,self.expD),self.upper)
+        self.upper_inv = tf.linalg.inv(self.upper)
+        self.lower_inv = tf.linalg.inv(self.lower)
+        self.expD_inv = tf.linalg.inv(self.expD)
+        self.R_inv = tf.matmul(tf.matmul(self.upper_inv,self.expD_inv),self.lower_inv)
+        
+        self.multiply_inv = tf.reduce_sum(tf.matmul(tf.matmul(self._z,self.R_inv),tf.transpose(self._z,perm = [0,2,1])))
+        self.logdet = tf.reduce_sum(self.D)
+        
+        self.loss = tf.reduce_sum(self.logdet+self.multiply_inv)
         
         self.train = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
         
     def predict(self, x):
         x = np.expand_dims(x,axis=0)
-        correlation = self.sess.run(self.cor, {self._X: x})
-        return correlation
+        covariation = self.sess.run(self.R, {self._X: x})
+        return covariation
 
     def update(self, episode_memory):
-        episode_memory = np.array(episode_memory)
-        x = np.array(episode_memory[:,0].tolist())
-        z = np.array(episode_memory[:,1].tolist())[:,0]
+        self.episode_memory = np.array(episode_memory)
+        x = np.array(self.episode_memory[:,0].tolist())
+        z = np.array(self.episode_memory[:,1].tolist())
         c_loss = self.sess.run([self.loss,self.train], {self._X: x, self._z: z})[0]
         return c_loss
         

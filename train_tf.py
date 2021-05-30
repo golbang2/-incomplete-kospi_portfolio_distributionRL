@@ -32,7 +32,6 @@ def stan_res(r,sigma):
     st = inv_dt@r
     return np.expand_dims(st,0)
 
-
 #preprocessed data loading
 is_train = 1
 
@@ -40,13 +39,13 @@ is_train = 1
 input_day_size = 50
 filter_size = 3
 num_of_feature = 4
-num_of_asset = 10
-num_episodes = 800 if is_train ==1 else 1
+num_of_asset = 8
+num_episodes = 100 if is_train ==1 else 1
 money = 1e+8
 beta = 0.2
 
 #saving
-save_frequency = 100
+save_frequency = 10
 save_path = 'd:/data/weight/'
 save_model = 1
 load_predictor = 1
@@ -66,12 +65,12 @@ sess = tf.Session(config = config)
 
 with tf.variable_scope('ESM'):
     ESM = network.select_network(sess)
-with tf.variable_scope('AAM'):
-    AAM = network.policy(sess ,num_of_asset = num_of_asset)
 with tf.variable_scope('FVM'):
     FVM = network.forecaster(sess)
+with tf.variable_scope('AAM'):
+    AAM = network.policy(sess ,num_of_asset = num_of_asset)
 with tf.variable_scope('ECM'):
-    ECM = network.estimator(sess)
+    ECM = network.estimator(sess,num_of_asset = num_of_asset)
 
 sess.run(tf.global_variables_initializer())
 
@@ -90,11 +89,11 @@ if load_predictor:
     saver_FVM.restore(sess,ckpt_FVM.model_checkpoint_path)
 if load_allocator:
     saver_AAM.restore(sess,ckpt_AAM.model_checkpoint_path)
-saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
+    saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
 
 w = np.ones(num_of_asset)/num_of_asset
 
-for i in range(300,num_episodes):
+for i in range(num_episodes):
     ECM_memory = deque()
     s = env.reset()
     s = MM_scaler(s)
@@ -120,4 +119,3 @@ for i in range(300,num_episodes):
     if save_model == 1 and i % save_frequency == save_frequency - 1:
         #saver_AAM.save(sess,save_path+'AAM/AAM-'+str(i)+'.cptk')
         saver_ECM.save(sess,save_path+'ECM/ECM-'+str(i)+'.cptk')
-
