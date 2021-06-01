@@ -82,8 +82,8 @@ saver_AAM = tf.train.Saver(var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARI
 saver_ECM = tf.train.Saver(var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'ECM'))
 ckpt_ESM = tf.train.get_checkpoint_state(save_path+'ESM')
 ckpt_FVM = tf.train.get_checkpoint_state(save_path+'FVM')
-ckpt_AAM = tf.train.get_checkpoint_state(save_path+'AAM')
-ckpt_ECM = tf.train.get_checkpoint_state(save_path+'ECM')
+ckpt_AAM = tf.train.get_checkpoint_state(save_path+'AAM/m'+str(num_of_asset))
+ckpt_ECM = tf.train.get_checkpoint_state(save_path+'ECM/m'+str(num_of_asset))
 if load_predictor:
     saver_ESM.restore(sess,ckpt_ESM.model_checkpoint_path)
     saver_FVM.restore(sess,ckpt_FVM.model_checkpoint_path)
@@ -100,7 +100,7 @@ for i in range(num_episodes):
     done = False
     v = money
     while not done:
-        evaluated_value = ESM.predict(s)
+        #evaluated_value = ESM.predict(s)
         forecasted_sigma = FVM.predict(s)
         selected_s = env.select_rand()
         selected_s = MM_scaler(selected_s)
@@ -109,7 +109,7 @@ for i in range(num_episodes):
         s_prime = MM_scaler(s_prime)
         selected_sigma = selecting(env.random_index, forecasted_sigma)
         #AAM_memory.append([selected_s, r-beta*selected_sigma[:,0]])
-        ECM_memory.append([selected_s, stan_res(r,selected_sigma[:,0])])
+        ECM_memory.append([selected_s, [r]])
         s = s_prime
         v = v_prime
         if done:
@@ -119,3 +119,4 @@ for i in range(num_episodes):
     if save_model == 1 and i % save_frequency == save_frequency - 1:
         #saver_AAM.save(sess,save_path+'AAM/AAM-'+str(i)+'.cptk')
         saver_ECM.save(sess,save_path+'ECM/ECM-'+str(i)+'.cptk')
+        print(i,'saved')

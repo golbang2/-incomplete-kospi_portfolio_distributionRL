@@ -15,19 +15,21 @@ def elu(x):
     return tf.nn.elu(x)+1
 
 class policy:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 0.1, name='allocator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 0.1, beta = 0.2, name='allocator'):
         self.sess = sess
         self.input_size=day_length
         self.output_size=num_of_asset
         self.net_name=name
         self.num_of_feature = num_of_feature
         self.filter_size = filter_size
+        self.beta = beta
         regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
         initializer = layer.xavier_initializer()
         
         self._X=tf.placeholder(tf.float32,[None,self.output_size,self.input_size,self.num_of_feature], name = "s") # shape: batch,10,50,4
         self._r=tf.placeholder(tf.float32,[None,self.output_size], name = 'r')
-        self._sigma = tf.placeholder(tf.float32,[None,self.output_size],name = 'sigma')
+        self._sigma = tf.placeholder(tf.float32,[None,1,self.output_size],name = 'sigma')
+        self._cov = tf.placeholder(tf.float32,[None,self.output_size,self.output_size],name = 'cov')
         
         self.conv1 = layer.conv2d(self._X, 8, [1,self.filter_size], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
         self.conv2 = layer.conv2d(self.conv1, 1, [1,self.input_size-self.filter_size+1], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer, weights_regularizer = regularizer)
@@ -36,7 +38,14 @@ class policy:
 
         self.policy = layer.fully_connected(self.fc1, self.output_size, activation_fn=tf.nn.softmax)
         
-        self.loss = -tf.reduce_sum((self._r-self._sigma)*self.policy)
+        self.sigma_c = tf.matmul(self._sigma,tf.linalg.diag(self.policy))
+        self.sigma_c = tf.matmul(self.sigma_c,self._cov)
+        self.sigma_c = tf.matmul(self.sigma_c,tf.linalg.diag(self._sigma[:,0]))
+        self.sigma_c = tf.reshape(self.sigma_c,(-1,self.output_size))
+        
+        self.reward = self._r - self.beta * self.sigma_c
+        
+        self.loss = -tf.reduce_sum(self.reward*self.policy)
         
         self.train = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
         
