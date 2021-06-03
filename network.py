@@ -15,7 +15,7 @@ def elu(x):
     return tf.nn.elu(x)+1
 
 class policy:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 0.1, beta = 0.2, name='allocator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 1e-3, beta = 0.2, name='allocator'):
         self.sess = sess
         self.input_size=day_length
         self.output_size=num_of_asset
@@ -23,12 +23,11 @@ class policy:
         self.num_of_feature = num_of_feature
         self.filter_size = filter_size
         self.beta = beta
-        regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
+        regularizer = tf.contrib.layers.l2_regularizer(scale=regularizer_rate)
         initializer = layer.xavier_initializer()
         
         self._X=tf.placeholder(tf.float32,[None,self.output_size,self.input_size,self.num_of_feature], name = "s") # shape: batch,10,50,4
         self._r=tf.placeholder(tf.float32,[None,self.output_size], name = 'r')
-        self._sigma = tf.placeholder(tf.float32,[None,1,self.output_size],name = 'sigma')
         self._cov = tf.placeholder(tf.float32,[None,self.output_size,self.output_size],name = 'cov')
         
         self.conv1 = layer.conv2d(self._X, 8, [1,self.filter_size], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
@@ -38,12 +37,12 @@ class policy:
 
         self.policy = layer.fully_connected(self.fc1, self.output_size, activation_fn=tf.nn.softmax)
         
-        self.sigma_c = tf.matmul(self._sigma,tf.linalg.diag(self.policy))
-        self.sigma_c = tf.matmul(self.sigma_c,self._cov)
-        self.sigma_c = tf.matmul(self.sigma_c,tf.linalg.diag(self._sigma[:,0]))
-        self.sigma_c = tf.reshape(self.sigma_c,(-1,self.output_size))
+        self.contrib_var = tf.matmul(tf.reshape(self.policy,(-1,1,self.output_size)),self._cov)
+        self.contrib_var = tf.reshape(self.contrib_var,(-1,self.output_size))
         
-        self.reward = self._r - self.beta * self.sigma_c
+        self.baseline = self._r /self.output_size - self.beta * tf.reduce_sum(self._cov,1)/self.output_size
+        
+        self.reward = self._r - self.beta * self.contrib_var
         
         self.loss = -tf.reduce_sum(self.reward*self.policy)
         
@@ -57,12 +56,13 @@ class policy:
     def update(self, episode_memory):
         episode_memory = np.array(episode_memory)
         s = np.array(episode_memory[:,0].tolist())
-        r = np.array(episode_memory[:,1].tolist())[:,0]
-        a_loss = self.sess.run([self.loss,self.train], {self._X: s, self._r: r})[0]
+        r = np.array(episode_memory[:,1].tolist())
+        cov = np.array(episode_memory[:,2].tolist())[:,0]
+        a_loss = self.sess.run([self.loss,self.train], {self._X: s, self._r: r, self._cov : cov})[0]
         return a_loss
     
 class estimator:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, name='allocator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-2, name='estimator'):
         self.sess = sess
         self.input_size=day_length
         self.net_name=name
@@ -79,24 +79,15 @@ class estimator:
         
         self.fc1 = layer.fully_connected(layer.flatten(self.conv2), 50, activation_fn=tf.nn.sigmoid)
         
-        self.fc_L = layer.fully_connected(self.fc1, num_of_asset * num_of_asset,activation_fn = tf.nn.tanh)
+        self.fc_L = layer.fully_connected(self.fc1, num_of_asset * num_of_asset , activation_fn = tf.nn.tanh)
         self.L = tf.reshape(self.fc_L,(-1,num_of_asset,num_of_asset))
-        self.L = (self.L + tf.transpose(self.L,perm = [0,2,1])) +1e-2
-        self.lower = tf.linalg.band_part(self.L,-1,0)
-        self.upper = tf.linalg.band_part(self.L,0,-1)
         
-        self.fc_D = layer.fully_connected(self.fc1, num_of_asset,activation_fn=tf.nn.sigmoid)
-        self.D = tf.linalg.diag(self.fc_D)*2
+        self.R = tf.matmul(self.L,tf.transpose(self.L,perm = [0,2,1]))+1e-3
         
-        self.expD = tf.exp(self.D)
-        self.R = tf.matmul(tf.matmul(self.lower,self.expD),self.upper)
-        self.upper_inv = tf.linalg.inv(self.upper)
-        self.lower_inv = tf.linalg.inv(self.lower)
-        self.expD_inv = tf.linalg.inv(self.expD)
-        self.R_inv = tf.matmul(tf.matmul(self.upper_inv,self.expD_inv),self.lower_inv)
+        self.R_inv = tf.linalg.inv(self.R)
         
         self.multiply_inv = tf.reduce_sum(tf.matmul(tf.matmul(self._z,self.R_inv),tf.transpose(self._z,perm = [0,2,1])))
-        self.logdet = tf.reduce_sum(self.D)
+        self.logdet = tf.linalg.logdet(self.R)
         
         self.loss = tf.reduce_sum(self.logdet+self.multiply_inv)
         

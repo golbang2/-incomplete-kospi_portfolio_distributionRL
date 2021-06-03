@@ -40,7 +40,7 @@ input_day_size = 50
 filter_size = 3
 num_of_feature = 4
 num_of_asset = 8
-num_episodes = 100 if is_train ==1 else 1
+num_episodes = 1000 if is_train ==1 else 1
 money = 1e+8
 beta = 0.2
 
@@ -48,18 +48,13 @@ beta = 0.2
 save_frequency = 10
 save_path = 'd:/data/weight/'
 save_model = 1
-load_predictor = 1
-load_allocator = 0
+load_model = 1
+
 
 env = environment.trade_env(number_of_asset = num_of_asset, train = is_train)
 
 config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
 config.gpu_options.allow_growth = True
-
-a_loss_sum = 0
-s_loss_sum = 0
-f_loss_sum = 0
-c_loss_sum = 0
 
 sess = tf.Session(config = config)
 
@@ -68,7 +63,7 @@ with tf.variable_scope('ESM'):
 with tf.variable_scope('FVM'):
     FVM = network.forecaster(sess)
 with tf.variable_scope('AAM'):
-    AAM = network.policy(sess ,num_of_asset = num_of_asset)
+    AAM = network.policy(sess ,num_of_asset = num_of_asset, beta = beta)
 with tf.variable_scope('ECM'):
     ECM = network.estimator(sess,num_of_asset = num_of_asset)
 
@@ -84,39 +79,42 @@ ckpt_ESM = tf.train.get_checkpoint_state(save_path+'ESM')
 ckpt_FVM = tf.train.get_checkpoint_state(save_path+'FVM')
 ckpt_AAM = tf.train.get_checkpoint_state(save_path+'AAM/m'+str(num_of_asset))
 ckpt_ECM = tf.train.get_checkpoint_state(save_path+'ECM/m'+str(num_of_asset))
-if load_predictor:
+if load_model:
     saver_ESM.restore(sess,ckpt_ESM.model_checkpoint_path)
     saver_FVM.restore(sess,ckpt_FVM.model_checkpoint_path)
-if load_allocator:
-    saver_AAM.restore(sess,ckpt_AAM.model_checkpoint_path)
-    saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
+    #saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
+    #saver_AAM.restore(sess,ckpt_AAM.model_checkpoint_path)
 
 w = np.ones(num_of_asset)/num_of_asset
+a_loss = 0
 
 for i in range(num_episodes):
-    ECM_memory = deque()
+    exp_memory = deque()
     s = env.reset()
     s = MM_scaler(s)
     done = False
     v = money
     while not done:
         #evaluated_value = ESM.predict(s)
-        forecasted_sigma = FVM.predict(s)
+        #forecasted_sigma = FVM.predict(s)
         selected_s = env.select_rand()
         selected_s = MM_scaler(selected_s)
         #w = AAM.predict(selected_s)
         s_prime,r,done,v_prime,growth = env.step(w)
         s_prime = MM_scaler(s_prime)
-        selected_sigma = selecting(env.random_index, forecasted_sigma)
-        #AAM_memory.append([selected_s, r-beta*selected_sigma[:,0]])
-        ECM_memory.append([selected_s, [r]])
+        #selected_sigma = selecting(env.random_index, forecasted_sigma)
+        #covariance = ECM.predict(selected_s)
+        #exp_memory.append([selected_s, r-r.mean(), covariance])
+        exp_memory.append([selected_s, [r]])
         s = s_prime
         v = v_prime
         if done:
-            c_loss = ECM.update(ECM_memory)
+            #print('%d agent: %.4f benchmark: %.4f' %(i,v/money,(v-env.benchmark)/money))
+            #a_loss = AAM.update(exp_memory)
+            c_loss = ECM.update(exp_memory)
             print(i, c_loss)
             
     if save_model == 1 and i % save_frequency == save_frequency - 1:
         #saver_AAM.save(sess,save_path+'AAM/AAM-'+str(i)+'.cptk')
-        saver_ECM.save(sess,save_path+'ECM/ECM-'+str(i)+'.cptk')
+        #saver_ECM.save(sess,save_path+'ECM/ECM-'+str(i)+'.cptk')
         print(i,'saved')
