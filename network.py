@@ -15,20 +15,20 @@ def elu(x):
     return tf.nn.elu(x)+1
 
 class policy:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 1e-3, beta = 0.2, name='allocator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-4, regularizer_rate = 1e-3, gamma = 0.03, name='allocator'):
         self.sess = sess
         self.input_size=day_length
         self.output_size=num_of_asset
         self.net_name=name
         self.num_of_feature = num_of_feature
         self.filter_size = filter_size
-        self.beta = beta
+        self.gamma = gamma
         regularizer = tf.contrib.layers.l2_regularizer(scale=regularizer_rate)
         initializer = layer.xavier_initializer()
         
-        self._X=tf.placeholder(tf.float32,[None,self.output_size,self.input_size,self.num_of_feature], name = "s") # shape: batch,10,50,4
-        self._r=tf.placeholder(tf.float32,[None,self.output_size], name = 'r')
-        self._cov = tf.placeholder(tf.float32,[None,self.output_size,self.output_size],name = 'cov')
+        self._X=tf.placeholder(tf.float64,[None,self.output_size,self.input_size,self.num_of_feature], name = "s") # shape: batch,10,50,4
+        self._r=tf.placeholder(tf.float64,[None,self.output_size], name = 'r')
+        self._H = tf.placeholder(tf.float64, [None,self.output_size,self.output_size],name = 'cov')
         
         self.conv1 = layer.conv2d(self._X, 8, [1,self.filter_size], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
         self.conv2 = layer.conv2d(self.conv1, 1, [1,self.input_size-self.filter_size+1], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer, weights_regularizer = regularizer)
@@ -37,14 +37,16 @@ class policy:
 
         self.policy = layer.fully_connected(self.fc1, self.output_size, activation_fn=tf.nn.softmax)
         
-        self.contrib_var = tf.matmul(tf.reshape(self.policy,(-1,1,self.output_size)),self._cov)
-        self.contrib_var = tf.reshape(self.contrib_var,(-1,self.output_size))
+        self.WH = tf.matmul(tf.reshape(self.policy,(-1,1,self.output_size)),self._H)
+        self.WHW = tf.matmul(self.WH,tf.reshape(self.policy,(-1,self.output_size,1)))
+        self.sigma_p = tf.sqrt(self.WHW)
         
-        self.baseline = self._r /self.output_size - self.beta * tf.reduce_sum(self._cov,1)/self.output_size
+        self.risk_loss = ((self.sigma_p-self.gamma)*1e+2)**2
+        self.risk_loss = tf.reshape(self.risk_loss,(-1,1))
         
-        self.reward = self._r - self.beta * self.contrib_var
+        self.weighted_reward = tf.reduce_sum((self._r*10) * self.policy,1)
         
-        self.loss = -tf.reduce_sum(self.reward*self.policy)
+        self.loss = tf.reduce_sum(-self.weighted_reward + self.risk_loss)
         
         self.train = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
         
@@ -58,11 +60,11 @@ class policy:
         s = np.array(episode_memory[:,0].tolist())
         r = np.array(episode_memory[:,1].tolist())
         cov = np.array(episode_memory[:,2].tolist())[:,0]
-        a_loss = self.sess.run([self.loss,self.train], {self._X: s, self._r: r, self._cov : cov})[0]
+        a_loss = self.sess.run([self.loss,self.train], {self._X: s, self._r: r, self._H : cov})[0]
         return a_loss
     
 class estimator:
-    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-2, name='estimator'):
+    def __init__(self, sess, num_of_feature=4, day_length=50, num_of_asset=10,  filter_size = 3, learning_rate = 1e-3, name='estimator'):
         self.sess = sess
         self.input_size=day_length
         self.net_name=name
@@ -71,15 +73,15 @@ class estimator:
         regularizer = tf.contrib.layers.l2_regularizer(scale=1e-3)
         initializer = layer.xavier_initializer()
         
-        self._X=tf.placeholder(tf.float32,[None,num_of_asset, self.input_size,self.num_of_feature], name = "x") # shape: batch,10,50,4
-        self._z = tf.placeholder(tf.float32,[None, 1, num_of_asset],name = 'z')
+        self._X=tf.placeholder(tf.float64,[None,num_of_asset, self.input_size,self.num_of_feature], name = "x") # shape: batch,10,50,4
+        self._z = tf.placeholder(tf.float64,[None, 1, num_of_asset],name = 'z')
         
         self.conv1 = layer.conv2d(self._X, 8, [1,self.filter_size], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
         self.conv2 = layer.conv2d(self.conv1, 1, [1,self.input_size-self.filter_size+1], padding='VALID',activation_fn = tf.nn.leaky_relu, weights_initializer = initializer)
         
         self.fc1 = layer.fully_connected(layer.flatten(self.conv2), 50, activation_fn=tf.nn.sigmoid)
         
-        self.fc_L = layer.fully_connected(self.fc1, num_of_asset * num_of_asset , activation_fn = tf.nn.tanh)
+        self.fc_L = layer.fully_connected(self.fc1, num_of_asset * num_of_asset, activation_fn=tf.nn.tanh)
         self.L = tf.reshape(self.fc_L,(-1,num_of_asset,num_of_asset))
         
         self.R = tf.matmul(self.L,tf.transpose(self.L,perm = [0,2,1]))+1e-3
@@ -87,7 +89,7 @@ class estimator:
         self.R_inv = tf.linalg.inv(self.R)
         
         self.multiply_inv = tf.reduce_sum(tf.matmul(tf.matmul(self._z,self.R_inv),tf.transpose(self._z,perm = [0,2,1])))
-        self.logdet = tf.linalg.logdet(self.R)
+        self.logdet = tf.log(tf.linalg.det(self.R))
         
         self.loss = tf.reduce_sum(self.logdet+self.multiply_inv)
         

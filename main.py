@@ -5,11 +5,15 @@ Created on Tue Mar  2 02:14:44 2021
 @author: karig
 """
 
-import network_pytorch
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+import tensorflow as tf
 import environment
 import numpy as np
-import torch
 import os
+import train_tf
+import network
 
 #min max scaling function
 def MM_scaler(s):
@@ -50,68 +54,23 @@ env = environment.trade_env(number_of_asset = num_of_asset, train = is_train)
 
 s=env.reset()
 iteration = 0
-p_loss = 0.
-a_loss = 0.
 excess_return = 0.
 
-predictor = network_pytorch.predictor(s.shape).to(cuda_index)
-allocator = network_pytorch.allocator(s, num_of_asset, beta = beta).to(cuda_index)
-predictor = predictor.cuda()
-allocator = allocator.cuda()
+#preprocessed data loading
+is_train = 1
 
-if load_weight:
-    checkpoint = torch.load(save_path+load_list[-1])
-    predictor.load_state_dict(checkpoint['predictor_state_dict'])
-    allocator.load_state_dict(checkpoint['allocator_state_dict'])
-    predictor.optimizer.load_state_dict(checkpoint['optimizerP_state_dict'])
-    allocator.optimizer.load_state_dict(checkpoint['optimizerA_state_dict'])
-    #agent = torch.load(save_path+load_list[-1])
-    print(load_list[-1], 'loaded')
-    iteration = int(load_list[-1][:4])
-    predictor.eval()
-    allocator.eval()
-    if is_train:
-        predictor.train()
-        allocator.train()
+#hyperparameters
+input_day_size = 50
+filter_size = 3
+num_of_feature = 4
+num_of_asset = 10
+num_episodes = 5000 if is_train ==1 else 1
+money = 1e+8
+beta = 0.03
 
+#saving
+save_frequency = 100
+save_path = 'd:/data/weight/'
+save_model = 1
+load_model = 1
 
-for i in range(iteration,iteration + num_episodes):
-    s=env.reset()
-    s=MM_scaler(s)
-    done=False
-    v=money
-    while not done:
-        mu, sigma = predictor.forward(torch.tensor(s, dtype = torch.float).cuda())
-        selected_s = env.select_rand()
-        selected_s = MM_scaler(selected_s)
-        weight, sigma_p = allocator.forward(torch.tensor(selected_s, dtype = torch.float).cuda())
-        s_prime, r, done, v_prime, growth = env.step(weight.detach().cpu().numpy())
-        s_prime = MM_scaler(s_prime)
-        selected_sigma = selecting(env.random_index, sigma)
-        predictor.calculate_loss(mu,sigma,torch.tensor(growth).cuda())
-        allocator.calculate_loss(weight,torch.tensor(r).cuda(),torch.log(torch.tensor(v_prime/v)), selected_sigma, sigma_p)
-        s = s_prime
-        v = v_prime
-        if done:
-            excess_return += (v-env.benchmark)/money
-            p_loss += torch.sum(predictor.loss).item()
-            a_loss += torch.sum(allocator.loss).item()
-            predictor.optimize()
-            allocator.optimize()
-            print('%d agent: %.4f benchmark: %.4f'
-                  %(i,v/money,(v-env.benchmark)/money))
-            print('mu_loss: %.4f sigma_loss: %.4f alloc_loss: %.4f sigmaP_loss: %.4f'
-                  %(torch.sum(predictor.r_loss).item(),torch.sum(predictor.v_loss).item(),
-                    torch.sum(allocator.w_loss).item(),torch.sum(allocator.s_loss).item()))
-
-    if i % save_frequency == 0 and is_save == True and i !=iteration:
-        torch.save({
-            'predictor_state_dict': predictor.state_dict(),
-            'allocator_state_dict': allocator.state_dict(),
-            'optimizerP_state_dict': predictor.optimizer.state_dict(),
-            'optimizerA_state_dict': allocator.optimizer.state_dict(),
-            }, save_path + str(i).zfill(4)+'.tar')
-        print(i, 'saved excess: %.4f Ploss: %.4f Aloss: %.4f'%(excess_return,p_loss,a_loss))
-        a_loss = 0.
-        p_loss = 0.
-        excess_return = 0.

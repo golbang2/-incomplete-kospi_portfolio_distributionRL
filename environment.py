@@ -10,8 +10,7 @@ import pandas as pd
 from collections import deque
 
 class load_data:
-    def __init__(self,data_path = './data/',day_length=50, number_of_asset = 10, train_length = 1020, test_length = 255
-                 , train = True):
+    def __init__(self,data_path = './data/',day_length=50, number_of_asset = 10, train_length = 1020, test_length = 175, train = True, test_set = 0):
         #hyper parameter
         self.number_of_asset = number_of_asset
         self.number_of_feature = 4 # close,high,low,volume
@@ -31,17 +30,28 @@ class load_data:
         self.ksp_list = self.ksp_list[:]
         
         for i in self.ksp_list:
-            self.ksp_data = pd.read_csv(data_path+"stock_price/"+i[0]+".csv")
-            self.ksp_data = self.ksp_data[['Close','High','Low','Volume']].to_numpy(dtype=np.float32)
             if train:
+                self.ksp_data = pd.read_csv(data_path+"stock_price/"+i[0]+".csv")
+                self.ksp_data = self.ksp_data[['Close','High','Low','Volume']].to_numpy(dtype=np.float32)
                 self.ksp_data = self.ksp_data[:-self.test_length]
             else:
-                self.ksp_data = self.ksp_data[-self.test_length-self.day_length:]
+                self.ksp_data = pd.read_csv(data_path+"test/"+i[0]+".csv")
+                self.ksp_data = self.ksp_data[['Close','High','Low','Volume']].to_numpy(dtype=np.float32)
+                self.ksp_data = self.ksp_data[test_set*test_length:(test_set+1)*test_length + day_length]
+            
             self.loaded_list.append(self.ksp_data)
             self.index_deque.append([a,i[0],len(self.ksp_data),i[1]])
             if self.max_len < len(self.ksp_data):
                 self.max_len = len(self.ksp_data)
             a+=1
+    
+    def train_data_slice(self, length, isleft = 0):
+        if isleft:
+            for i in self.loaded_list:
+                i = i[:-length]
+        if not isleft:
+            for i in self.loaded_list:
+                i = i[length:]
 
     def extract_selected(self,index,time):
         extract_deque = deque()
@@ -61,11 +71,17 @@ class load_data:
         for i in index:
             extract_deque.append(self.loaded_list[i][-(self.max_len-self.day_length-time),0])
         return np.array(extract_deque,dtype = np.float32)
+    
+    def extract_close_fixed_index(self,index,time):
+        extract_deque = deque()
+        for i in index:
+            extract_deque.append(self.loaded_list[i][-time:,0])
+        return np.array(extract_deque,dtype = np.float32)
 
 class trade_env:
-    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True, data_path = './data/'):
+    def __init__(self, decimal = False, day_length = 50, number_of_asset = 10, train = True, data_path = './data/', test_set = 0):
         self.train = train
-        self.env_data = load_data(data_path = data_path, train = train,number_of_asset = number_of_asset)
+        self.env_data = load_data(data_path = data_path, train = train,number_of_asset = number_of_asset, test_set = test_set)
         self.decimal = decimal
         self.number_of_asset = number_of_asset
         self.day_length = day_length
@@ -82,8 +98,8 @@ class trade_env:
 
     def select_from_value(self,value_array):
         self.selected_index = []
-        self.sorted_value = value_array[:,0].argsort()[::-1][:self.number_of_asset]
-        for i in self.sorted_value:
+        self.index = value_array[:,0].argsort()[::-1][:self.number_of_asset]
+        for i in self.index:
             self.selected_index.append(self.all_index[i])
         
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
@@ -91,9 +107,9 @@ class trade_env:
         return self.selected_state
     
     def select_rand(self):
-        self.random_index = np.random.choice(len(self.all_index),self.number_of_asset,False)
         self.selected_index = []
-        for i in self.random_index:
+        self.index = np.random.choice(len(self.all_index),self.number_of_asset,False)
+        for i in self.index:
             self.selected_index.append(self.all_index[i])
         self.selected_state = self.env_data.extract_selected(self.selected_index,self.time)
         return self.selected_state
@@ -128,14 +144,15 @@ class trade_env:
     def calculate_value(self,value,weight):
         close = self.env_data.extract_close(self.selected_index,self.time-1)
         close_prime = self.env_data.extract_close(self.selected_index,self.time)
+        
         y = (weight*value//close)
         value_prime = np.sum(y * close_prime) + np.sum(weight * value % close)
-        return value_prime, np.log(close_prime/close)
+        return value_prime, close_prime/close-1
 
     def calculate_return_time(self):
         close = self.env_data.extract_close(self.all_index,self.time-1)
         close_prime = self.env_data.extract_close(self.all_index,self.time)
-        return np.log(close_prime/close)
+        return close_prime/close-1
     
     def start_UBAH(self,index,weight):
         close = self.env_data.extract_close(index,self.time)
@@ -148,6 +165,8 @@ class trade_env:
         self.time+=1
         close = self.env_data.extract_close(index,self.time)
         self.value = np.sum(self.y * close) + self.residual
+        close_prime = self.env_data.extract_close(index,self.time+1)
+            
         if self.time == self.env_data.max_len-self.day_length-1:
             self.done = True
-        return self.done
+        return self.value,self.done

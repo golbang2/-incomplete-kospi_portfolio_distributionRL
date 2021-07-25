@@ -22,10 +22,15 @@ def date_format(date):
     date=dt.date(yyyy,mm,dd)
     return date
 
-def price_from_yahoo(code):
-    data = pdr.get_data_yahoo(code+'.KS',start = date_format('2014-01-2'),end = date_format('2021-03-20'))
+def price_from_yahoo(code,start = '2019-8-27', end = '2021-04-27'):
+    data = pdr.get_data_yahoo(code+'.KS',start = date_format(start),end = date_format(end))
     return data
 
+'''
+data_path = './data/test/'
 ksp = np.loadtxt('d:/data/KOSPI200an.csv', delimiter=',',dtype = str)
-ksp_data_lst = []
-
+for i in ksp[-60:]:
+    data = price_from_yahoo(i[0])
+    data.to_csv(data_path + i[0]+'.csv')
+    time.sleep(2)
+'''

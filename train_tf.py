@@ -8,7 +8,6 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import tensorflow as tf
-import matplotlib.pyplot as plt
 from collections import deque
 import network
 import environment
@@ -26,8 +25,8 @@ def selecting(index, value):
         selected_value.append(value[i])
     return np.array(selected_value)
 
-def stan_res(r,sigma):
-    dt = np.diag(sigma)
+def stan_r(r,sigma):
+    dt = np.diag(sigma[:,0])
     inv_dt = np.linalg.inv(dt)
     st = inv_dt@r
     return np.expand_dims(st,0)
@@ -39,17 +38,17 @@ is_train = 1
 input_day_size = 50
 filter_size = 3
 num_of_feature = 4
-num_of_asset = 8
-num_episodes = 1000 if is_train ==1 else 1
+num_of_asset = 10
+num_episodes = 3000 if is_train ==1 else 1
 money = 1e+8
 beta = 0.2
+gamma=0.07
 
 #saving
-save_frequency = 10
+save_frequency = 100
 save_path = 'd:/data/weight/'
 save_model = 1
 load_model = 1
-
 
 env = environment.trade_env(number_of_asset = num_of_asset, train = is_train)
 
@@ -63,13 +62,11 @@ with tf.variable_scope('ESM'):
 with tf.variable_scope('FVM'):
     FVM = network.forecaster(sess)
 with tf.variable_scope('AAM'):
-    AAM = network.policy(sess ,num_of_asset = num_of_asset, beta = beta)
+    AAM = network.policy(sess ,num_of_asset = num_of_asset, gamma= gamma)
 with tf.variable_scope('ECM'):
     ECM = network.estimator(sess,num_of_asset = num_of_asset)
 
 sess.run(tf.global_variables_initializer())
-
-module_name = ['ESM','FVM','ECM','AAM']
 
 saver_ESM = tf.train.Saver(var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'ESM'))
 saver_FVM = tf.train.Saver(var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'FVM'))
@@ -82,13 +79,14 @@ ckpt_ECM = tf.train.get_checkpoint_state(save_path+'ECM/m'+str(num_of_asset))
 if load_model:
     saver_ESM.restore(sess,ckpt_ESM.model_checkpoint_path)
     saver_FVM.restore(sess,ckpt_FVM.model_checkpoint_path)
-    #saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
+    saver_ECM.restore(sess,ckpt_ECM.model_checkpoint_path)
     #saver_AAM.restore(sess,ckpt_AAM.model_checkpoint_path)
 
 w = np.ones(num_of_asset)/num_of_asset
-a_loss = 0
+benchmark_sum = 0
+value_list = []
 
-for i in range(num_episodes):
+for i in range(2100,num_episodes):
     exp_memory = deque()
     s = env.reset()
     s = MM_scaler(s)
@@ -96,25 +94,46 @@ for i in range(num_episodes):
     v = money
     while not done:
         #evaluated_value = ESM.predict(s)
-        #forecasted_sigma = FVM.predict(s)
+        forecasted_sigma = FVM.predict(s)
+        #selected_s = env.select_from_value(evaluated_value-(beta * forecasted_sigma**2))
         selected_s = env.select_rand()
         selected_s = MM_scaler(selected_s)
-        #w = AAM.predict(selected_s)
+        w = AAM.predict(selected_s)
         s_prime,r,done,v_prime,growth = env.step(w)
         s_prime = MM_scaler(s_prime)
-        #selected_sigma = selecting(env.random_index, forecasted_sigma)
-        #covariance = ECM.predict(selected_s)
-        #exp_memory.append([selected_s, r-r.mean(), covariance])
-        exp_memory.append([selected_s, [r]])
+        selected_sigma = selecting(env.index, forecasted_sigma)
+        D = np.diag(selected_sigma[:,0])
+        H = D@ECM.predict(selected_s)@D
+        exp_memory.append([selected_s, r-r.mean(), H]) #train AAM
+        #exp_memory.append([selected_s, stan_r(r,selected_sigma)]) #train ECM
         s = s_prime
         v = v_prime
+        value_list.append(v)
         if done:
-            #print('%d agent: %.4f benchmark: %.4f' %(i,v/money,(v-env.benchmark)/money))
-            #a_loss = AAM.update(exp_memory)
-            c_loss = ECM.update(exp_memory)
-            print(i, c_loss)
+            print('%d agent: %.4f benchmark: %.4f' %(i,v/money,(v-env.benchmark)/money))
+            benchmark_sum += (v-env.benchmark)/money
+            loss = AAM.update(exp_memory)
+            print(i,loss)
             
     if save_model == 1 and i % save_frequency == save_frequency - 1:
-        #saver_AAM.save(sess,save_path+'AAM/AAM-'+str(i)+'.cptk')
-        #saver_ECM.save(sess,save_path+'ECM/ECM-'+str(i)+'.cptk')
-        print(i,'saved')
+        saver_AAM.save(sess,save_path+'AAM/m'+str(num_of_asset)+'/gamma'+str(gamma)+'/AAM-'+str(i)+'.cptk')
+        #saver_ECM.save(sess,save_path+'ECM/m'+str(num_of_asset)+'/ECM-'+str(i)+'.cptk')
+        print(i,'saved performance', benchmark_sum)
+        benchmark_sum = 0
+        value_list = []
+
+'''
+class train_module(network, num_asset, beta, gamma, episodes, days = 50, filter = 3, 
+                   num_feature = 4, save_frequency = 100, save_path = 'd:/data/weight/', save_model = 1):
+    
+    env = environment.trade_env(number_of_asset = num_asset, train = 1)
+    
+        
+    self.config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
+    self.config.gpu_options.allow_growth = True
+    
+    self.sess = tf.Session(config = self.config)
+    
+    if network == 'ESM'
+    
+'''  
